@@ -1,0 +1,93 @@
+#include "ParameterLayout.h"
+#include "ParameterIds.h"
+
+namespace
+{
+    // True logarithmic (base-10) mapping for frequency parameters, so slider/
+    // knob travel spends equal space per octave rather than per Hz. Uses
+    // juce::mapToLog10/mapFromLog10 rather than NormalisableRange's built-in
+    // power-law skew, which only approximates a log curve.
+    juce::NormalisableRange<float> makeLogFrequencyRange (float minHz, float maxHz)
+    {
+        return juce::NormalisableRange<float> (
+            minHz,
+            maxHz,
+            [] (float rangeStart, float rangeEnd, float normalised)
+            { return juce::mapToLog10 (normalised, rangeStart, rangeEnd); },
+            [] (float rangeStart, float rangeEnd, float value)
+            { return juce::mapFromLog10 (value, rangeStart, rangeEnd); });
+    }
+}
+
+namespace tnbr
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
+    {
+        juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+        //======================================================================
+        // Tight: high-pass pre-emphasis, 20-300 Hz, default 90 Hz - tightens
+        // the low end before the gain cascade so chugs stay percussive.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::tight, 1 },
+            "Tight",
+            makeLogFrequencyRange (20.0f, 300.0f),
+            90.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("Hz")));
+
+        //======================================================================
+        // Gain: pre-gain into the oversampled 3-stage waveshaper cascade.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::gain, 1 },
+            "Gain",
+            juce::NormalisableRange<float> (0.0f, 40.0f, 0.01f),
+            24.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // Bass/Mid/Treble: passive-style tone stack, applied post-cascade.
+        // Fixed corner frequencies (see ToneStack); only the gain of each
+        // band is user-controllable, like a classic amp tone stack.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::bass, 1 },
+            "Bass",
+            juce::NormalisableRange<float> (-15.0f, 15.0f, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::mid, 1 },
+            "Mid",
+            juce::NormalisableRange<float> (-15.0f, 15.0f, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::treble, 1 },
+            "Treble",
+            juce::NormalisableRange<float> (-15.0f, 15.0f, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // Level: output trim.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::level, 1 },
+            "Level",
+            juce::NormalisableRange<float> (-24.0f, 24.0f, 0.01f),
+            0.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // Mix: dry/wet. Default 100% (fully wet) - a rhythm distortion is
+        // normally run fully in the signal path, not blended.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::mix, 1 },
+            "Mix",
+            juce::NormalisableRange<float> (0.0f, 100.0f, 0.1f),
+            100.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("%")));
+
+        return layout;
+    }
+}

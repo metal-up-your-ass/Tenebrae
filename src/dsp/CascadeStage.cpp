@@ -1,0 +1,72 @@
+#include "CascadeStage.h"
+#include "AsymmetricClipper.h"
+
+namespace
+{
+    // Keeps a fixed interstage filter frequency safely below Nyquist
+    // regardless of host sample rate/oversampling factor, so
+    // juce::dsp::IIR::Coefficients::makeHighPass/makeLowPass never receives
+    // an out-of-range value (which would produce invalid/NaN coefficients).
+    float clampBelowNyquist (float frequencyHz, double sampleRate) noexcept
+    {
+        const auto nyquist = static_cast<float> (sampleRate) * 0.5f;
+        return juce::jlimit (10.0f, nyquist * 0.9f, frequencyHz);
+    }
+}
+
+CascadeStage::CascadeStage (float asymmetryToUse, float highPassFrequencyHzToUse, float lowPassFrequencyHzToUse)
+    : asymmetry (asymmetryToUse),
+      highPassFrequencyHz (highPassFrequencyHzToUse),
+      lowPassFrequencyHz (lowPassFrequencyHzToUse)
+{
+}
+
+void CascadeStage::prepare (const juce::dsp::ProcessSpec& spec)
+{
+    oversampledSampleRate = spec.sampleRate;
+
+    driveGain.setRampDurationSeconds (smoothingTimeSeconds);
+    driveGain.prepare (spec);
+
+    interstageHighPass.prepare (spec);
+    interstageLowPass.prepare (spec);
+
+    reset();
+
+    // Fixed filters - computed once here, never recomputed per block, since
+    // neither corner frequency is user-automatable.
+    *interstageHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (
+        oversampledSampleRate, clampBelowNyquist (highPassFrequencyHz, oversampledSampleRate), filterQ);
+    *interstageLowPass.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass (
+        oversampledSampleRate, clampBelowNyquist (lowPassFrequencyHz, oversampledSampleRate), filterQ);
+}
+
+void CascadeStage::reset()
+{
+    driveGain.reset();
+    interstageHighPass.reset();
+    interstageLowPass.reset();
+}
+
+void CascadeStage::setDriveDb (float newDriveDb)
+{
+    driveGain.setGainDecibels (newDriveDb);
+}
+
+void CascadeStage::process (juce::dsp::ProcessContextReplacing<float>& context)
+{
+    driveGain.process (context);
+
+    auto block = context.getOutputBlock();
+
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    {
+        auto* channelData = block.getChannelPointer (channel);
+
+        for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
+            channelData[sample] = AsymmetricClipper::processSample (channelData[sample], asymmetry);
+    }
+
+    interstageHighPass.process (context);
+    interstageLowPass.process (context);
+}
