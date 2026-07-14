@@ -33,4 +33,23 @@ namespace ParamIDs
     // Dry/wet mix. At 0% the plugin is a delay-compensated passthrough of
     // the input (see TenebraeEngine's DryWetMixer usage).
     inline constexpr auto mix = "mix";
+
+    // Cascade voicing: selects between two fixed sets of per-stage asymmetry
+    // and interstage HP/LP corners (see TenebraeEngine.cpp) - "Tight" is the
+    // v0.1 cascade, "Loose" is a softer-driven, wider-band alternative
+    // voicing added in M1. Not a continuous control; changing it may produce
+    // a small audible step, same as a physical amp channel-select switch.
+    inline constexpr auto voicing = "voicing";
+
+    // Bright: a fixed pre-cascade high-shelf pre-emphasis, modelled on the
+    // "bright switch"/brighter-cab presence character of a high-gain amp
+    // channel - not a full cab-sim (that is a convolution-based plugin
+    // elsewhere in the suite). Off by default.
+    inline constexpr auto bright = "bright";
+
+    // Tone Voice: a fixed dB tilt added on top of the Bass/Mid/Treble bands
+    // (Flat/Scoop/Boost - see ToneStack::setToneVoice), giving a one-switch
+    // character shift while the individual band knobs remain fully live on
+    // top of it.
+    inline constexpr auto toneVoice = "toneVoice";
 }

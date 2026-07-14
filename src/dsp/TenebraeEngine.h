@@ -14,13 +14,16 @@
 // Signal flow (see docs/architecture.md for the full diagram and the
 // latency-compensation rationale):
 //
-//   input -> Tight HPF -> pre-Gain -> [8x oversampled] 3-stage cascade
-//         -> 3-band tone stack (Bass/Mid/Treble) -> Level -> Dry/Wet mix
+//   input -> Tight HPF -> Bright (switch) -> pre-Gain
+//         -> [8x oversampled] 3-stage cascade (Voicing: Tight/Loose)
+//         -> 3-band tone stack (Bass/Mid/Treble, tilted by Tone Voice)
+//         -> Level -> Dry/Wet mix
 //
 // Each cascade stage is gain -> asymmetric tanh clip -> fixed interstage
 // HP/LP filter (see CascadeStage); the three stages use progressively
 // tighter/darker fixed voicing so the cascade converges onto the "chug"
 // band rather than piling up an ever-fizzier mess (see TenebraeEngine.cpp).
+// Voicing selects between two such fixed-voicing triplets ("Tight"/"Loose").
 //
 // The dry path is delay-compensated against the oversampler's reported
 // latency via juce::dsp::DryWetMixer, so Mix at 0% is a sample-accurate
@@ -55,6 +58,21 @@ public:
     void setLevelDb (float newLevelDb);
     void setMixProportion (float newProportion01);
 
+    // Voicing: 0 = Tight (v0.1 cascade), 1 = Loose (softer-driven, wider-
+    // band alternative) - selects which of the two preallocated cascade
+    // stage triplets process() runs. Both triplets are always kept prepared
+    // so switching is a branch, not a reallocation.
+    void setVoicing (int newVoicingIndex);
+
+    // Bright: fixed pre-cascade high-shelf pre-emphasis (see .cpp for the
+    // exact shelf), modelled on a high-gain amp channel's bright switch.
+    // Discrete switch, not a continuous control - see setBright()'s .cpp
+    // comment for why it is intentionally not smoothed.
+    void setBright (bool isBrightOn);
+
+    // Tone Voice: forwarded to ToneStack::setToneVoice() - see there.
+    void setToneVoice (int newToneVoiceIndex);
+
     // Oversampling latency in samples, valid after prepare() has run.
     int getLatencySamples() const noexcept { return latencySamples; }
 
@@ -67,6 +85,14 @@ private:
     double sampleRate = 44100.0;
 
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> tightHighPass;
+
+    // Bright pre-emphasis: a fixed high-shelf, toggled between unity (0 dB)
+    // and a fixed boost by setBright() - see TenebraeEngine.cpp for the
+    // shelf frequency/gain. Runs after Tight, before preGain, so engaging it
+    // feeds a brighter signal into the cascade's nonlinearity rather than
+    // just brightening the already-clipped output.
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> brightShelf;
+
     juce::dsp::Gain<float> preGain;
 
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
@@ -74,10 +100,17 @@ private:
     // Fixed per-stage voicing (asymmetry, interstage HP/LP corner
     // frequencies, internal drive) is set up in the constructor/prepare() -
     // see TenebraeEngine.cpp for the rationale behind each stage's numbers.
-    // Only the pre-cascade Gain parameter is user-automatable.
+    // Only the pre-cascade Gain parameter is user-automatable. Both the
+    // "Tight" (v0.1) and "Loose" (M1) triplets are always prepared; process()
+    // branches on currentVoicing to pick which one actually runs, so
+    // switching Voicing is allocation-free.
     CascadeStage cascadeStage1;
     CascadeStage cascadeStage2;
     CascadeStage cascadeStage3;
+
+    CascadeStage cascadeStage1Loose;
+    CascadeStage cascadeStage2Loose;
+    CascadeStage cascadeStage3Loose;
 
     ToneStack toneStack;
     juce::dsp::Gain<float> outputLevel;
@@ -97,9 +130,27 @@ private:
     // called), re-applied on every prepare() so re-prepare (sample-rate
     // change, etc.) never resets a live parameter back to a default or lets
     // a smoother start from an invalid 0 Hz.
+    // lastLevelDb exists for the same reason as lastGainDb: juce::dsp::Gain
+    // (used by both preGain and outputLevel) default-constructs its internal
+    // SmoothedValue to *linear 0* (silence), not unity - unlike Tight/Bass/
+    // Mid/Treble, which all have sane implicit defaults. Without re-applying
+    // lastLevelDb here on every prepare(), any prepare() call not
+    // immediately preceded by a fresh setLevelDb() (e.g. exercising the
+    // engine directly, or a future re-prepare path that doesn't reseed every
+    // parameter) would silently produce a permanently silent wet path - see
+    // the M1 fix note in TenebraeEngine.cpp's prepare().
     float lastTightHz = 90.0f;
     float lastGainDb = 24.0f;
+    float lastLevelDb = 0.0f;
     float lastMixProportion = 1.0f;
+
+    // Voicing/Bright have no coefficient-priming subtlety like Tight/Mix
+    // above (Voicing is a pure branch, Bright's shelf is fully recomputed by
+    // setBright() itself whenever it changes - see the .cpp), but are still
+    // tracked here so setVoicing()/setBright() can no-op on a repeated,
+    // unchanged value from processBlock() every block.
+    int currentVoicing = 0;
+    bool brightEnabled = false;
 
     int latencySamples = 0;
 

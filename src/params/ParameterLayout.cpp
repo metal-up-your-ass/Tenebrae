@@ -88,6 +88,36 @@ namespace tnbr
             100.0f,
             juce::AudioParameterFloatAttributes().withLabel ("%")));
 
+        //======================================================================
+        // Voicing: switches the fixed cascade constants (asymmetry +
+        // interstage HP/LP corners) between the v0.1 "Tight" cascade and a
+        // softer-driven, wider-band "Loose" alternative (see
+        // TenebraeEngine.cpp for both stage tables). Index-based choice, not
+        // a continuous control.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::voicing, 1 },
+            "Voicing",
+            juce::StringArray { "Tight", "Loose" },
+            0));
+
+        //======================================================================
+        // Bright: fixed pre-cascade high-shelf pre-emphasis, modelled on a
+        // high-gain amp channel's bright switch. Off by default.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::bright, 1 },
+            "Bright",
+            false));
+
+        //======================================================================
+        // Tone Voice: fixed dB tilt added on top of the Bass/Mid/Treble
+        // bands (see ToneStack::setToneVoice). Flat is the v0.1 behaviour
+        // (no tilt); Scoop/Boost are canned high-gain-rhythm tone shapes.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::toneVoice, 1 },
+            "Tone Voice",
+            juce::StringArray { "Flat", "Scoop", "Boost" },
+            0));
+
         return layout;
     }
 }

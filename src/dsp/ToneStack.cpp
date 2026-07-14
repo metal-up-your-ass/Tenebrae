@@ -2,6 +2,11 @@
 
 ToneStack::ToneStack() = default;
 
+float ToneStack::clampCombinedGainDb (float gainDb) noexcept
+{
+    return juce::jlimit (-combinedGainLimitDb, combinedGainLimitDb, gainDb);
+}
+
 void ToneStack::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate;
@@ -21,13 +26,18 @@ void ToneStack::prepare (const juce::dsp::ProcessSpec& spec)
 
     // Prime the filter coefficients immediately so the very first process()
     // call runs with correct, non-default coefficients rather than an
-    // identity/uninitialised state.
+    // identity/uninitialised state. Includes the Tone Voice tilt so a
+    // non-Flat voice selected before prepare() (e.g. restored from state) is
+    // already reflected in the very first block's coefficients.
     *bassShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf (
-        sampleRate, bassShelfFrequencyHz, shelfQ, juce::Decibels::decibelsToGain (lastBassDb));
+        sampleRate, bassShelfFrequencyHz, shelfQ,
+        juce::Decibels::decibelsToGain (clampCombinedGainDb (lastBassDb + toneVoiceBassTiltDb[toneVoiceIndex])));
     *midPeak.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter (
-        sampleRate, midPeakFrequencyHz, midPeakQ, juce::Decibels::decibelsToGain (lastMidDb));
+        sampleRate, midPeakFrequencyHz, midPeakQ,
+        juce::Decibels::decibelsToGain (clampCombinedGainDb (lastMidDb + toneVoiceMidTiltDb[toneVoiceIndex])));
     *trebleShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
-        sampleRate, trebleShelfFrequencyHz, shelfQ, juce::Decibels::decibelsToGain (lastTrebleDb));
+        sampleRate, trebleShelfFrequencyHz, shelfQ,
+        juce::Decibels::decibelsToGain (clampCombinedGainDb (lastTrebleDb + toneVoiceTrebleTiltDb[toneVoiceIndex])));
 }
 
 void ToneStack::reset()
@@ -55,14 +65,23 @@ void ToneStack::setTrebleDb (float newTrebleDb)
     trebleDbSmoothed.setTargetValue (newTrebleDb);
 }
 
+void ToneStack::setToneVoice (int newToneVoiceIndex)
+{
+    jassert (newToneVoiceIndex >= 0 && newToneVoiceIndex < 3);
+    toneVoiceIndex = juce::jlimit (0, 2, newToneVoiceIndex);
+}
+
 void ToneStack::updateCoefficients (int numSamples)
 {
     // Coefficient recomputation involves trig calls, so band gains are
     // smoothed and the filter coefficients re-derived once per block rather
-    // than per sample.
-    const auto bassDb = bassDbSmoothed.skip (numSamples);
-    const auto midDb = midDbSmoothed.skip (numSamples);
-    const auto trebleDb = trebleDbSmoothed.skip (numSamples);
+    // than per sample. The Tone Voice tilt (see the header) is added on top
+    // of each smoothed band value and the combined total clamped, so the
+    // user's Bass/Mid/Treble knobs stay fully live regardless of which Tone
+    // Voice is selected.
+    const auto bassDb = clampCombinedGainDb (bassDbSmoothed.skip (numSamples) + toneVoiceBassTiltDb[toneVoiceIndex]);
+    const auto midDb = clampCombinedGainDb (midDbSmoothed.skip (numSamples) + toneVoiceMidTiltDb[toneVoiceIndex]);
+    const auto trebleDb = clampCombinedGainDb (trebleDbSmoothed.skip (numSamples) + toneVoiceTrebleTiltDb[toneVoiceIndex]);
 
     *bassShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf (
         sampleRate, bassShelfFrequencyHz, shelfQ, juce::Decibels::decibelsToGain (bassDb));

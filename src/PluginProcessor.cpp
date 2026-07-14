@@ -17,6 +17,9 @@ TenebraeAudioProcessor::TenebraeAudioProcessor()
     trebleDb = apvts.getRawParameterValue (ParamIDs::treble);
     levelDb = apvts.getRawParameterValue (ParamIDs::level);
     mixPercent = apvts.getRawParameterValue (ParamIDs::mix);
+    voicingChoice = apvts.getRawParameterValue (ParamIDs::voicing);
+    brightToggle = apvts.getRawParameterValue (ParamIDs::bright);
+    toneVoiceChoice = apvts.getRawParameterValue (ParamIDs::toneVoice);
 
     jassert (tightHz != nullptr);
     jassert (gainDb != nullptr);
@@ -25,6 +28,9 @@ TenebraeAudioProcessor::TenebraeAudioProcessor()
     jassert (trebleDb != nullptr);
     jassert (levelDb != nullptr);
     jassert (mixPercent != nullptr);
+    jassert (voicingChoice != nullptr);
+    jassert (brightToggle != nullptr);
+    jassert (toneVoiceChoice != nullptr);
 }
 
 TenebraeAudioProcessor::~TenebraeAudioProcessor() = default;
@@ -103,6 +109,9 @@ void TenebraeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     engine.setTrebleDb (trebleDb->load (std::memory_order_relaxed));
     engine.setLevelDb (levelDb->load (std::memory_order_relaxed));
     engine.setMixProportion (mixPercent->load (std::memory_order_relaxed) * 0.01f);
+    engine.setVoicing (juce::roundToInt (voicingChoice->load (std::memory_order_relaxed)));
+    engine.setBright (brightToggle->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setToneVoice (juce::roundToInt (toneVoiceChoice->load (std::memory_order_relaxed)));
 
     engine.prepare (spec);
 
@@ -157,6 +166,9 @@ void TenebraeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     engine.setTrebleDb (trebleDb->load (std::memory_order_relaxed));
     engine.setLevelDb (levelDb->load (std::memory_order_relaxed));
     engine.setMixProportion (mixPercent->load (std::memory_order_relaxed) * 0.01f);
+    engine.setVoicing (juce::roundToInt (voicingChoice->load (std::memory_order_relaxed)));
+    engine.setBright (brightToggle->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setToneVoice (juce::roundToInt (toneVoiceChoice->load (std::memory_order_relaxed)));
 
     juce::dsp::AudioBlock<float> block (buffer);
     engine.process (block);

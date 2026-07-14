@@ -17,8 +17,10 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // One knob + label per parameter, in signal-flow order.
+    // One knob + label per continuous parameter, in signal-flow order.
     struct Knob
     {
         juce::Slider slider;
@@ -26,15 +28,28 @@ private:
         std::unique_ptr<SliderAttachment> attachment;
     };
 
+    // One combo box + label per choice parameter (Voicing, Tone Voice).
+    struct Choice
+    {
+        juce::ComboBox box;
+        juce::Label label;
+        std::unique_ptr<ComboBoxAttachment> attachment;
+    };
+
     void configureKnob (Knob& knob, const juce::String& parameterId, const juce::String& labelText);
+    void configureChoice (Choice& choice, const juce::String& parameterId, const juce::String& labelText);
 
     TenebraeAudioProcessor& audioProcessor;
 
     Knob tightKnob;
     Knob gainKnob;
+    Choice voicingChoice;
+    juce::ToggleButton brightButton;
+    std::unique_ptr<ButtonAttachment> brightAttachment;
     Knob bassKnob;
     Knob midKnob;
     Knob trebleKnob;
+    Choice toneVoiceChoice;
     Knob levelKnob;
     Knob mixKnob;
 
