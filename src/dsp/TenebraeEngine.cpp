@@ -1,4 +1,5 @@
 #include "TenebraeEngine.h"
+#include "RealtimeGain.h"
 
 #include <cmath>
 
@@ -79,6 +80,12 @@ void TenebraeEngine::prepare (const juce::dsp::ProcessSpec& spec)
     preGain.setRampDurationSeconds (smoothingTimeSeconds);
     preGain.prepare (spec);
     preGain.setGainDecibels (lastGainDb);
+
+    // Sized once here (not on the audio thread) to the host's maximum block
+    // size, shared by preGain and outputLevel below - see the member's doc
+    // comment in TenebraeEngine.h and RealtimeGain.h for why this replaces
+    // juce::dsp::Gain::process()'s own per-call stack allocation.
+    hostRateGainScratch.resize (static_cast<size_t> (spec.maximumBlockSize));
 
     // 8x oversampling (2^3), half-band polyphase IIR: three cascaded
     // nonlinearities generate substantially more high-frequency content than
@@ -297,7 +304,9 @@ void TenebraeEngine::process (juce::dsp::AudioBlock<float>& block)
 
     tightHighPass.process (context);
     brightShelf.process (context);
-    preGain.process (context);
+    // See GitHub issue #12/RealtimeGain.h: routes around
+    // juce::dsp::Gain::process()'s multichannel-branch alloca().
+    RealtimeGain::process (preGain, context, hostRateGainScratch.data(), hostRateGainScratch.size());
 
     auto oversampledBlock = oversampler->processSamplesUp (block);
     juce::dsp::ProcessContextReplacing<float> oversampledContext (oversampledBlock);
@@ -318,7 +327,8 @@ void TenebraeEngine::process (juce::dsp::AudioBlock<float>& block)
     oversampler->processSamplesDown (block);
 
     toneStack.process (context);
-    outputLevel.process (context);
+    // See GitHub issue #12/RealtimeGain.h: same rationale as preGain above.
+    RealtimeGain::process (outputLevel, context, hostRateGainScratch.data(), hostRateGainScratch.size());
 
     dryWetMixer.mixWetSamples (block);
 }

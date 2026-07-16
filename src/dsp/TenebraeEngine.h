@@ -5,6 +5,8 @@
 #include "CascadeStage.h"
 #include "ToneStack.h"
 
+#include <vector>
+
 // The complete Tenebrae signal path, independent of juce::AudioProcessor so
 // it can be exercised directly by unit tests without instantiating a full
 // plugin (see tests/EngineTests.cpp). Owns all DSP state; every buffer/
@@ -114,6 +116,17 @@ private:
 
     ToneStack toneStack;
     juce::dsp::Gain<float> outputLevel;
+
+    // Scratch buffer for RealtimeGain::process() (see TenebraeEngine.cpp and
+    // RealtimeGain.h), sized in prepare() to the host's maximum block size.
+    // Shared by preGain and outputLevel - both run at the host rate on the
+    // same in-place `block`/`context`, never concurrently, so one buffer
+    // covers both call sites. Routes around juce::dsp::Gain::process()'s
+    // multichannel-branch alloca() (see GitHub issue #12); smaller in
+    // magnitude here than CascadeStage::driveGainScratch since this is the
+    // host-rate (not oversampled) block, but the same unbounded-stack-alloc
+    // risk in principle.
+    std::vector<float> hostRateGainScratch;
 
     // Sized generously above any realistic oversampling latency so
     // setWetLatency() never exceeds the mixer's internal delay-line

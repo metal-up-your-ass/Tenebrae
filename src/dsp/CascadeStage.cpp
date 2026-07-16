@@ -1,5 +1,6 @@
 #include "CascadeStage.h"
 #include "AsymmetricClipper.h"
+#include "RealtimeGain.h"
 
 #include <cmath>
 
@@ -43,6 +44,12 @@ void CascadeStage::prepare (const juce::dsp::ProcessSpec& spec)
     driveGain.setRampDurationSeconds (smoothingTimeSeconds);
     driveGain.prepare (spec);
 
+    // Sized once here (not on the audio thread) to the oversampled maximum
+    // block size - see the member's doc comment in CascadeStage.h and
+    // RealtimeGain.h for why this replaces juce::dsp::Gain::process()'s own
+    // per-call stack allocation.
+    driveGainScratch.resize (static_cast<size_t> (spec.maximumBlockSize));
+
     interstageHighPass.prepare (spec);
     interstageLowPass.prepare (spec);
 
@@ -70,7 +77,11 @@ void CascadeStage::setDriveDb (float newDriveDb)
 
 void CascadeStage::process (juce::dsp::ProcessContextReplacing<float>& context)
 {
-    driveGain.process (context);
+    // See GitHub issue #12/RealtimeGain.h: routes around
+    // juce::dsp::Gain::process()'s multichannel-branch alloca() (proportional
+    // to the oversampled block size - up to 8x the host's own block size)
+    // using a scratch buffer already sized in prepare().
+    RealtimeGain::process (driveGain, context, driveGainScratch.data(), driveGainScratch.size());
 
     auto block = context.getOutputBlock();
 
