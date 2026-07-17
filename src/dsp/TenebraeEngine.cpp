@@ -43,6 +43,32 @@ namespace
     constexpr float brightShelfFrequencyHz = 3500.0f;
     constexpr float brightShelfGainDb = 5.0f;
     constexpr float brightShelfQ = juce::MathConstants<float>::sqrt2 / 2.0f;
+
+    // Presence shelf (v0.2.0, docs/design-brief.md section 3.3): fixed
+    // 2.4 kHz corner, sourced to a reference high-gain amp's documented
+    // Presence-control pivot (docs/research-notes.md section 2, citation
+    // only - see that file's own note on why brand names live there and
+    // nowhere else) - the more "modern high-gain" of the two documented
+    // pivots,
+    // consistent with Tenebrae's own modern-leaning default (Tight)
+    // Voicing. Placed post-cascade/post-tone-stack (unlike Bright, which is
+    // deliberately pre-cascade) since the reference class's Presence
+    // control is a power-amp feedback stage acting on the already-driven
+    // signal - see setPresenceDb()'s docs.
+    constexpr float presenceShelfFrequencyHz = 2400.0f;
+    constexpr float presenceShelfQ = juce::MathConstants<float>::sqrt2 / 2.0f;
+
+    // NaN-safe clamp for Presence's dB value - same rationale/pattern as
+    // ToneStack::clampCombinedGainDb() (see that function's doc comment):
+    // juce::jlimit() is not NaN-safe, so NaN is replaced with 0 dB (unity/
+    // no-op) before clamping.
+    float clampPresenceDb (float gainDb) noexcept
+    {
+        if (std::isnan (gainDb))
+            gainDb = 0.0f;
+
+        return juce::jlimit (-12.0f, 12.0f, gainDb);
+    }
 }
 
 // Fixed per-stage cascade voicing: each successive stage is driven a little
@@ -137,6 +163,21 @@ void TenebraeEngine::prepare (const juce::dsp::ProcessSpec& spec)
     cascadeStage3Loose.setDriveDb (8.0f);
 
     toneStack.prepare (spec);
+
+    presenceShelf.prepare (spec);
+    presenceDbSmoothed.reset (sampleRate, smoothingTimeSeconds);
+    presenceDbSmoothed.setCurrentAndTargetValue (lastPresenceDb);
+    // Primed even though process() may skip the filter entirely at the
+    // default 0 dB (see process()'s bypass check) - if the user restores a
+    // non-default Presence value from a saved session, the very first block
+    // must already reflect it rather than starting from an identity/
+    // uninitialised coefficient set.
+    *presenceShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
+        sampleRate, presenceShelfFrequencyHz, presenceShelfQ,
+        juce::Decibels::decibelsToGain (clampPresenceDb (lastPresenceDb)));
+
+    gate.prepare (spec);
+
     outputLevel.setRampDurationSeconds (smoothingTimeSeconds);
     outputLevel.prepare (spec);
     // M1 fix: juce::dsp::Gain's internal SmoothedValue default-constructs to
@@ -208,6 +249,8 @@ void TenebraeEngine::reset()
     cascadeStage3Loose.reset();
 
     toneStack.reset();
+    presenceShelf.reset();
+    gate.reset();
     outputLevel.reset();
     dryWetMixer.reset();
 }
@@ -237,6 +280,37 @@ void TenebraeEngine::setMidDb (float newMidDb)
 void TenebraeEngine::setTrebleDb (float newTrebleDb)
 {
     toneStack.setTrebleDb (newTrebleDb);
+}
+
+void TenebraeEngine::setPresenceDb (float newPresenceDb)
+{
+    lastPresenceDb = newPresenceDb;
+    presenceDbSmoothed.setTargetValue (newPresenceDb);
+}
+
+void TenebraeEngine::setGateThresholdDb (float newThresholdDb)
+{
+    gate.setThresholdDb (newThresholdDb);
+}
+
+void TenebraeEngine::setGateAttackMs (float newAttackMs)
+{
+    gate.setAttackMs (newAttackMs);
+}
+
+void TenebraeEngine::setGateHoldMs (float newHoldMs)
+{
+    gate.setHoldMs (newHoldMs);
+}
+
+void TenebraeEngine::setGateReleaseMs (float newReleaseMs)
+{
+    gate.setReleaseMs (newReleaseMs);
+}
+
+void TenebraeEngine::setGateOn (bool shouldBeOn)
+{
+    gate.setEnabled (shouldBeOn);
 }
 
 void TenebraeEngine::setLevelDb (float newLevelDb)
@@ -323,10 +397,32 @@ void TenebraeEngine::processChunk (juce::dsp::AudioBlock<float>& block)
     // gains are re-applied once per block below.
     const auto tightHz = clampBelowNyquist (tightFrequencySmoothed.skip (static_cast<int> (numSamples)), sampleRate);
     const auto wetMix = mixSmoothed.skip (static_cast<int> (numSamples));
+    const auto presenceDb = clampPresenceDb (presenceDbSmoothed.skip (static_cast<int> (numSamples)));
 
     *tightHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, tightHz, filterQ);
     dryWetMixer.setWetMixProportion (wetMix);
     toneStack.updateCoefficients (static_cast<int> (numSamples));
+
+    // Presence within presenceBypassEpsilonDb of exactly 0 dB is treated as
+    // an explicit "off" position: the shelf's process() call is skipped
+    // entirely below (not merely computed as a near-unity filter), so the
+    // default state is a true bit-accurate passthrough rather than an
+    // approximately-flat shelf - see docs/design-brief.md section 4's
+    // Presence passthrough test guarantee and sibling plugin nave's
+    // CabConvolutionEngine.cpp for the same established pattern (LoCut/
+    // HiCut/Distance at their own "off" positions).
+    const bool presenceBypassed = std::abs (presenceDb) <= presenceBypassEpsilonDb;
+
+    if (! presenceBypassed && ! presenceEngagedPreviously)
+        presenceShelf.reset();
+
+    presenceEngagedPreviously = ! presenceBypassed;
+
+    if (! presenceBypassed)
+    {
+        *presenceShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf (
+            sampleRate, presenceShelfFrequencyHz, presenceShelfQ, juce::Decibels::decibelsToGain (presenceDb));
+    }
 
     juce::dsp::ProcessContextReplacing<float> context (block);
 
@@ -361,6 +457,16 @@ void TenebraeEngine::processChunk (juce::dsp::AudioBlock<float>& block)
     oversampler->processSamplesDown (block);
 
     toneStack.process (context);
+
+    if (! presenceBypassed)
+        presenceShelf.process (context);
+
+    // Gate: v0.2.0 addition, gates the fully-voiced wet signal (post-
+    // Presence, pre-Level) - see Gate.h. A true no-op/structural bypass when
+    // disabled (Gate::process() returns immediately without touching
+    // `context` or any internal state - see its docs).
+    gate.process (context);
+
     // See GitHub issue #12/RealtimeGain.h: same rationale as preGain above.
     RealtimeGain::process (outputLevel, context, hostRateGainScratch.data(), hostRateGainScratch.size());
 

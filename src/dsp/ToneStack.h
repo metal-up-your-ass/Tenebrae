@@ -47,6 +47,12 @@ public:
     // block, before process().
     void updateCoefficients (int numSamples);
 
+    // Public purely for test purposes (see tests/ToneStackTests.cpp's
+    // v0.2.0 Treble-corner regression test) - matches sibling plugin nave's
+    // CabConvolutionEngine::loCutMinHz/hiCutMaxHz precedent for exposing a
+    // fixed DSP constant a test needs to pin down without duplicating it.
+    static constexpr float trebleShelfFrequencyHz = 5000.0f;
+
 private:
     static constexpr double smoothingTimeSeconds = 0.05;
 
@@ -54,12 +60,22 @@ private:
     // against typical high-gain rhythm voicings: the mid corner sits in the
     // 500-700 Hz "boxy/honk" range most high-gain amps scoop for a tight
     // chug tone (moved down from the v0.1 800 Hz placeholder) with a
-    // narrower Q so Scoop/cut is surgical rather than broad, and the treble
-    // shelf sits at a typical amp "presence" corner just above the
-    // cascade's own top-end rolloff (interstage low-pass corners top out at
-    // 9 kHz - see TenebraeEngine.cpp) rather than deep in it.
+    // narrower Q so Scoop/cut is surgical rather than broad.
+    //
+    // v0.2.0 (docs/design-brief.md section 3.4): the Treble corner is raised
+    // from 3.5 kHz to 5 kHz. Reasoned, partially sourced: the reference
+    // class's TMB Treble corners cluster around 9-10 kHz and its Presence
+    // control pivots at 1.6-2.4 kHz (docs/research-notes.md section 2) -
+    // with the new Presence control (TenebraeEngine.cpp) now owning the
+    // 2.4 kHz region, Treble sits clearly above it rather than stacking on
+    // the same corner Bright already occupies (3.5 kHz, unchanged,
+    // pre-cascade - see TenebraeEngine.cpp). 5 kHz is a reasoned midpoint
+    // that separates Treble from both Bright and Presence while staying
+    // below the cascade's own top-end rolloff ceiling (interstage low-pass
+    // corners top out at 9 kHz in the Tight voicing) - not directly sourced
+    // to a single reference number, called out here rather than presented
+    // as measured (see the brief's honesty section).
     static constexpr float bassShelfFrequencyHz = 150.0f;
-    static constexpr float trebleShelfFrequencyHz = 3500.0f;
     static constexpr float midPeakFrequencyHz = 650.0f;
     static constexpr float midPeakQ = 1.1f;
     static constexpr float shelfQ = juce::MathConstants<float>::sqrt2 / 2.0f;

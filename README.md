@@ -21,10 +21,13 @@ Tenebrae is a high-gain rhythm-guitar distortion built on JUCE 8, aimed squarely
 - **Voicing** - Tight / Loose switch between two complete cascade voicings (asymmetry + interstage filtering): Tight is the tighter, more modern-leaning default; Loose is a softer-driven, wider-band, more vintage-leaning alternative
 - **Bright** - fixed pre-cascade high-shelf switch, modelled on a high-gain amp channel's bright switch/a brighter cabinet's presence peak
 - **3-stage cascade** - each stage is gain -> asymmetric tanh clip -> a fixed interstage high/low-pass pair; the three stages use progressively tighter, more asymmetric voicing so the cascade converges onto a focused chug band instead of an ever-fizzier mess. Runs inside 8x oversampling to keep aliasing from all three stages out of the audible band
-- **Bass / Mid / Treble** - passive-style tone stack (low shelf @ 150 Hz / peak @ 650 Hz / high shelf @ 3.5 kHz), +/-15 dB per band
+- **Bass / Mid / Treble** - passive-style tone stack (low shelf @ 150 Hz / peak @ 650 Hz / high shelf @ 5 kHz), +/-15 dB per band
 - **Tone Voice** - Flat / Scoop / Boost one-switch dB tilt added on top of the live Bass/Mid/Treble bands, for quickly auditioning a canned high-gain-rhythm tone shape
+- **Presence** - post-cascade high-shelf @ 2.4 kHz, +/-12 dB, modelled on the reference high-gain amp class's power-amp Presence feedback control; a true passthrough at its 0 dB default
+- **Gate** - conventional fixed attack/hold/release expander/gate, gates the fully-voiced wet signal after the cascade and tone stack; **on by default**, the single highest-impact addition for "tight chug" tone research surfaced was missing from v0.1
 - **Level** - output trim, -24 dB to +24 dB
 - **Mix** - dry/wet, with the dry path delay-compensated against the oversampling latency so Mix at 0% is a sample-accurate passthrough
+- **Preset system** - factory bank of 8 starting points plus save/load/rename/delete/import/export of your own presets, with English/German (auto-detected) frame localisation
 - Full state save/recall via `AudioProcessorValueTreeState`
 
 See [`docs/manual.md`](docs/manual.md) for the full user manual, including a musical description of every parameter and usage tips.
@@ -35,7 +38,7 @@ See [`docs/manual.md`](docs/manual.md) for the full user manual, including a mus
 Input --> Tight (HPF, 20-300 Hz) --> Bright (switch) --> Gain (0-40 dB) --> [8x oversampled]
               Cascade stage 1 -> Cascade stage 2 -> Cascade stage 3   (Voicing: Tight/Loose)
                                                               |
-   Output <-- Mix <-- Level <-- Treble <-- Mid <-- Bass <----+   (tilted by Tone Voice)
+   Output <-- Mix <-- Level <-- Gate <-- Presence <-- Treble <-- Mid <-- Bass <--+  (tilted by Tone Voice)
      ^
      |
 delay-compensated dry path
@@ -48,7 +51,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, inclu
 | Milestone | Description | Status |
 |---|---|---|
 | M1 | DSP completion - Voicing/Bright/Tone Voice, refined tone stack, broadened test coverage (sample-rate sweeps, bus configs, long-run stability) | Done |
-| M2 | Preset system + factory presets | Planned |
+| M2 | Preset system + factory presets + research-derived deep-dive voicing pass (Presence, Gate, Treble corner) | Done |
 | M3 | Custom GUI + accessibility pass | Planned |
 | M4 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
 <!-- ==END BODY== -->

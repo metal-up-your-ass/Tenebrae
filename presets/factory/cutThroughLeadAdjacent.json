@@ -1,0 +1,25 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.tenebrae",
+    "pluginVersion": "0.2.0",
+    "name": "Cut-Through Lead-Adjacent",
+    "category": "Guitar",
+    "parameters": {
+        "tight": 80.0,
+        "gain": 30.0,
+        "bass": 0.0,
+        "mid": 2.0,
+        "treble": 2.0,
+        "level": -1.0,
+        "mix": 100.0,
+        "voicing": 0.0,
+        "bright": 1.0,
+        "toneVoice": 2.0,
+        "presence": 0.0,
+        "gateThreshold": -48.0,
+        "gateAttack": 1.0,
+        "gateHold": 20.0,
+        "gateRelease": 150.0,
+        "gateOn": 1.0
+    }
+}

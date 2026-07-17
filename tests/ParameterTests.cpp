@@ -59,15 +59,17 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
             ParamIDs::tight, ParamIDs::gain, ParamIDs::bass, ParamIDs::mid,
             ParamIDs::treble, ParamIDs::level, ParamIDs::mix,
             ParamIDs::voicing, ParamIDs::bright, ParamIDs::toneVoice,
+            ParamIDs::presence, ParamIDs::gateThreshold, ParamIDs::gateAttack,
+            ParamIDs::gateHold, ParamIDs::gateRelease, ParamIDs::gateOn,
         };
 
         for (const auto* id : allIds)
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the M1 layout")
+    SECTION ("total parameter count matches the v0.2.0 layout (M1's 10 + v0.2.0's 6 new)")
     {
-        CHECK (apvts.processor.getParameters().size() == 10);
+        CHECK (apvts.processor.getParameters().size() == 16);
     }
 
     SECTION ("Tight: high-pass pre-emphasis defaults and range")
@@ -127,6 +129,43 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::bright));
         REQUIRE (param != nullptr);
         CHECK (param->get() == false);
+    }
+
+    SECTION ("Presence: post-cascade high-shelf defaults and range (v0.2.0)")
+    {
+        checkFloatDefault (apvts, ParamIDs::presence, 0.0f);
+        checkFloatRange (apvts, ParamIDs::presence, -12.0f, 12.0f);
+    }
+
+    SECTION ("Gate Threshold: defaults and range (v0.2.0)")
+    {
+        checkFloatDefault (apvts, ParamIDs::gateThreshold, -48.0f);
+        checkFloatRange (apvts, ParamIDs::gateThreshold, -80.0f, 0.0f);
+    }
+
+    SECTION ("Gate Attack: defaults and range (v0.2.0)")
+    {
+        checkFloatDefault (apvts, ParamIDs::gateAttack, 1.0f);
+        checkFloatRange (apvts, ParamIDs::gateAttack, 0.1f, 20.0f);
+    }
+
+    SECTION ("Gate Hold: defaults and range (v0.2.0)")
+    {
+        checkFloatDefault (apvts, ParamIDs::gateHold, 20.0f);
+        checkFloatRange (apvts, ParamIDs::gateHold, 0.0f, 500.0f);
+    }
+
+    SECTION ("Gate Release: defaults and range (v0.2.0)")
+    {
+        checkFloatDefault (apvts, ParamIDs::gateRelease, 150.0f);
+        checkFloatRange (apvts, ParamIDs::gateRelease, 5.0f, 2000.0f);
+    }
+
+    SECTION ("Gate on/off: defaults to ON (v0.2.0 - deliberate default change, see design-brief.md section 5)")
+    {
+        auto* param = dynamic_cast<juce::AudioParameterBool*> (apvts.getParameter (ParamIDs::gateOn));
+        REQUIRE (param != nullptr);
+        CHECK (param->get() == true);
     }
 
     SECTION ("Tone Voice: tilt choice defaults to Flat (index 0) with 3 options")

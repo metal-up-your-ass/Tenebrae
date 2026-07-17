@@ -62,8 +62,9 @@ TEST_CASE ("ToneStack: Bass boost/cut measurably shifts low-frequency energy", "
 
 TEST_CASE ("ToneStack: Treble boost/cut measurably shifts high-frequency energy", "[dsp][tonestack]")
 {
-    // 6 kHz sits above the M1-refined 3.5 kHz high-shelf corner, squarely in the band
-    // the Treble control shapes.
+    // 6 kHz sits above the v0.2.0-refined 5 kHz high-shelf corner (raised
+    // from 3.5 kHz - see docs/design-brief.md section 3.4), squarely in the
+    // band the Treble control shapes.
     const auto rmsBoost = measureBandRms (&ToneStack::setTrebleDb, 15.0f, 6000.0);
     const auto rmsCut = measureBandRms (&ToneStack::setTrebleDb, -15.0f, 6000.0);
 

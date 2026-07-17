@@ -347,3 +347,234 @@ TEST_CASE ("Engine: a block larger than the prepared maximum is chunked, not pas
 
     CHECK (maxAbsoluteDifference > 1.0e-3f);
 }
+
+//==============================================================================
+// v0.2.0 additions (docs/design-brief.md section 4): Presence and Gate
+// engine-level guarantees.
+
+TEST_CASE ("Engine: Presence measurably boosts/cuts energy above its 2.4 kHz pivot", "[dsp][engine][presence]")
+{
+    // 6 kHz sits comfortably above the sourced 2.4 kHz Presence pivot (see
+    // docs/design-brief.md section 3.3) - feeding it through the full
+    // engine at Presence = +12 dB vs -12 dB should show a clear RMS
+    // difference, same pattern as the existing ToneStackTests.cpp band
+    // tests.
+    auto renderWithPresence = [] (float presenceDb)
+    {
+        TenebraeEngine engine;
+        engine.setGainDb (10.0f); // modest gain: keeps the cascade from swamping the shelf's effect
+        engine.setMixProportion (1.0f);
+        engine.setPresenceDb (presenceDb);
+
+        const auto spec = makeTestSpec (1);
+        engine.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (1, testBlockSize);
+        TestHelpers::fillWithSine (buffer, testSampleRate, 6000.0, 0.5f);
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        engine.process (block);
+
+        return TestHelpers::rms (buffer);
+    };
+
+    const auto rmsCut = renderWithPresence (-12.0f);
+    const auto rmsBoost = renderWithPresence (12.0f);
+
+    REQUIRE (rmsCut > 0.0);
+    CHECK (rmsBoost > rmsCut * 1.2); // comfortably more than a rounding-error difference
+}
+
+TEST_CASE ("Engine: Presence at 0 dB (default) is a true passthrough, independent of prior filter state",
+           "[dsp][engine][presence]")
+{
+    // design-brief.md section 4: "the default must be a true passthrough,
+    // not an approximately-flat shelf". TenebraeEngine::processChunk()
+    // skips presenceShelf.process() entirely whenever Presence is within
+    // presenceBypassEpsilonDb of 0 dB (see TenebraeEngine.cpp) - this test
+    // proves that by dirtying the shelf's internal IIR delay-line state
+    // with an extreme, non-default Presence value during a first pass over
+    // part of the signal, then returning to exactly 0 dB for the rest: an
+    // *active* filter (even a near-unity one) would carry some residual
+    // influence from its own prior state into the following samples; a
+    // *skipped* filter cannot, by construction, since its process() is
+    // never called.
+    //
+    // Both engines below process the exact same total sample count via the
+    // exact same two-call (warmup, then measured) boundary, differing only
+    // in Presence's value during the first call - Presence sits downstream
+    // of every other stateful module (Tight/Bright/cascade/tone stack/
+    // DryWetMixer's dry delay line), none of which read from or feed back
+    // into it, so their internal state after the first call is bit-
+    // identical between the two engines regardless of what Presence did
+    // during it. This isolates presenceShelf's own state as the only
+    // possible source of a difference in the measured (second-call) output
+    // compared below - unlike simply running one engine through an extra
+    // warmup call the other never receives, which would also desynchronise
+    // every *other* stateful module's internal history and produce a
+    // difference unrelated to Presence.
+    constexpr int warmupSamples = 4096;
+    constexpr int measuredSamples = 8192;
+    const auto spec = makeTestSpec (1);
+
+    TenebraeEngine dirtiedEngine;
+    dirtiedEngine.setGainDb (10.0f);
+    dirtiedEngine.setMixProportion (1.0f);
+    dirtiedEngine.setPresenceDb (12.0f); // dirties presenceShelf's IIR state during the warmup call
+    dirtiedEngine.prepare (spec);
+
+    TenebraeEngine cleanEngine;
+    cleanEngine.setGainDb (10.0f);
+    cleanEngine.setMixProportion (1.0f);
+    cleanEngine.setPresenceDb (0.0f); // default throughout - never dirtied
+    cleanEngine.prepare (spec);
+
+    juce::AudioBuffer<float> dirtiedWarmup (1, warmupSamples);
+    juce::AudioBuffer<float> cleanWarmup (1, warmupSamples);
+    TestHelpers::fillWithSine (dirtiedWarmup, testSampleRate, 6000.0, 0.5f);
+    cleanWarmup.makeCopyOf (dirtiedWarmup);
+
+    juce::dsp::AudioBlock<float> dirtiedWarmupBlock (dirtiedWarmup);
+    dirtiedEngine.process (dirtiedWarmupBlock);
+
+    juce::dsp::AudioBlock<float> cleanWarmupBlock (cleanWarmup);
+    cleanEngine.process (cleanWarmupBlock);
+
+    dirtiedEngine.setPresenceDb (0.0f); // back to the default - should now skip the shelf entirely
+
+    juce::AudioBuffer<float> dirtiedBuffer (1, measuredSamples);
+    juce::AudioBuffer<float> cleanBuffer (1, measuredSamples);
+    TestHelpers::fillWithSine (dirtiedBuffer, testSampleRate, testFrequencyHz, 0.6f,
+                                static_cast<juce::int64> (warmupSamples));
+    cleanBuffer.makeCopyOf (dirtiedBuffer);
+
+    juce::dsp::AudioBlock<float> dirtiedBlock (dirtiedBuffer);
+    dirtiedEngine.process (dirtiedBlock);
+
+    juce::dsp::AudioBlock<float> cleanBlock (cleanBuffer);
+    cleanEngine.process (cleanBlock);
+
+    for (int i = 0; i < measuredSamples; ++i)
+        CHECK (juce::exactlyEqual (dirtiedBuffer.getSample (0, i), cleanBuffer.getSample (0, i)));
+}
+
+TEST_CASE ("Engine: Gate bypass ignores Threshold entirely (true structural bypass, not just an open gate)",
+           "[dsp][engine][gate]")
+{
+    // design-brief.md section 4: "With Gate bypassed, output must null
+    // against the same engine configuration built before the gate existed
+    // (i.e., a 'Gate always fully open' reference path)". Gate::process()'s
+    // documented true structural bypass (see Gate.h and GateTests.cpp's
+    // module-level "disabled bypass is independent of prior state" test)
+    // already proves the underlying guarantee rigorously in isolation; this
+    // engine-level test proves the wiring reaches all the way through
+    // TenebraeAudioProcessor by checking a corollary that only a *true*
+    // bypass satisfies: two otherwise-identical engines with GateOn=false
+    // must produce byte-for-byte identical output regardless of Threshold -
+    // if bypass were merely "compute an always-open gate" rather than a
+    // structural skip, a sufficiently extreme Threshold could still
+    // theoretically perturb the result; a true skip cannot depend on
+    // Threshold at all.
+    constexpr int numSamples = 8192;
+    const auto spec = makeTestSpec (1);
+
+    auto render = [&] (float thresholdDb)
+    {
+        TenebraeEngine engine;
+        engine.setGainDb (20.0f);
+        engine.setMixProportion (1.0f);
+        engine.setGateOn (false);
+        engine.setGateThresholdDb (thresholdDb);
+        engine.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (1, numSamples);
+        TestHelpers::fillWithSine (buffer, testSampleRate, testFrequencyHz, 0.5f);
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        engine.process (block);
+        return buffer;
+    };
+
+    const auto lowThresholdOutput = render (-80.0f);
+    const auto highThresholdOutput = render (0.0f);
+
+    for (int i = 0; i < numSamples; ++i)
+        CHECK (juce::exactlyEqual (lowThresholdOutput.getSample (0, i), highThresholdOutput.getSample (0, i)));
+}
+
+TEST_CASE ("Engine: engaged Gate measurably attenuates a below-threshold signal", "[dsp][engine][gate]")
+{
+    // Proves setGateOn()/setGateThresholdDb() actually reach the signal
+    // chain: a quiet signal held below threshold should be measurably
+    // quieter with the gate engaged than with it bypassed.
+    auto renderRms = [] (bool gateOn)
+    {
+        TenebraeEngine engine;
+        engine.setGainDb (0.0f);
+        engine.setMixProportion (1.0f);
+        engine.setGateOn (gateOn);
+        engine.setGateThresholdDb (-10.0f); // well above the quiet input signal below
+        engine.setGateAttackMs (0.5f);
+        engine.setGateHoldMs (0.0f);
+        engine.setGateReleaseMs (10.0f);
+
+        const auto spec = makeTestSpec (1);
+        engine.prepare (spec);
+
+        juce::AudioBuffer<float> buffer (1, testBlockSize);
+        TestHelpers::fillWithSine (buffer, testSampleRate, testFrequencyHz, 0.02f); // quiet, well below -10 dB
+
+        juce::dsp::AudioBlock<float> block (buffer);
+        engine.process (block);
+
+        // Measure only the back portion of the block, well past the
+        // release ramp's settling time.
+        juce::AudioBuffer<float> tail (1, testBlockSize / 4);
+
+        for (int i = 0; i < tail.getNumSamples(); ++i)
+            tail.setSample (0, i, buffer.getSample (0, testBlockSize - tail.getNumSamples() + i));
+
+        return TestHelpers::rms (tail);
+    };
+
+    const auto rmsBypassed = renderRms (false);
+    const auto rmsGated = renderRms (true);
+
+    CHECK (rmsGated < rmsBypassed * 0.5);
+}
+
+TEST_CASE ("Engine: Gate + cascade NaN/Inf sweep across Gate on/off and threshold extremes", "[dsp][engine][gate][nan]")
+{
+    // Extends the same exhaustive-combination pattern
+    // RobustnessTests.cpp/EngineTests.cpp already use for Voicing/Bright/
+    // Tone Voice to the new Gate on/off x Threshold-at-both-extremes axes,
+    // at max Gain - see docs/design-brief.md section 4.
+    for (bool gateOn : { false, true })
+    {
+        for (float thresholdDb : { -80.0f, 0.0f })
+        {
+            TenebraeEngine engine;
+            engine.setGainDb (40.0f);
+            engine.setBassDb (15.0f);
+            engine.setMidDb (15.0f);
+            engine.setTrebleDb (15.0f);
+            engine.setPresenceDb (12.0f);
+            engine.setLevelDb (24.0f);
+            engine.setMixProportion (1.0f);
+            engine.setGateOn (gateOn);
+            engine.setGateThresholdDb (thresholdDb);
+
+            const auto spec = makeTestSpec (2);
+            engine.prepare (spec);
+
+            juce::AudioBuffer<float> buffer (2, testBlockSize);
+            TestHelpers::fillWithSine (buffer, testSampleRate, testFrequencyHz, 1.0f);
+
+            juce::dsp::AudioBlock<float> block (buffer);
+            CHECK_NOTHROW (engine.process (block));
+
+            CHECK (TestHelpers::allSamplesFinite (buffer));
+            CHECK (TestHelpers::peakAbsolute (buffer) < 1000.0f);
+        }
+    }
+}

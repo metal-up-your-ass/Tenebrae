@@ -3,12 +3,61 @@
 #include "params/ParameterIds.h"
 #include "params/ParameterLayout.h"
 
+#include <BinaryData.h>
+
+namespace
+{
+    // The small, Tenebrae-specific config surface PresetManager needs (see
+    // src/presets/PresetManager.h's class docs) - everything else about the
+    // preset system is fully generic and portable to sibling plugins (see
+    // basilica-audio/nave's docs/preset-system-notes.md).
+    basilica::presets::PresetManagerConfig makePresetManagerConfig()
+    {
+        // JucePlugin_CFBundleIdentifier expands to a raw (unquoted) token
+        // sequence, not a string literal - JUCE_STRINGIFY() is the
+        // documented way to turn it into one. This is always
+        // "com.yvesvogl.tenebrae" here (BUNDLE_ID in CMakeLists.txt),
+        // matching the "plugin" field baked into every
+        // presets/factory/*.json file.
+        basilica::presets::PresetManagerConfig config;
+        config.pluginId = JUCE_STRINGIFY (JucePlugin_CFBundleIdentifier);
+        config.pluginName = JucePlugin_Name;
+        config.manufacturerName = "Yves Vogl";
+        config.pluginVersion = JucePlugin_VersionString;
+        // userPresetsDirectoryOverrideForTests intentionally left
+        // default-constructed (empty) - production instances always use the
+        // real platform-standard preset location (see PresetManager.h).
+        return config;
+    }
+
+    // BinaryData symbol names are derived from the presets/factory/*.json
+    // file names passed to juce_add_binary_data() in CMakeLists.txt (dots
+    // become underscores) - this list must stay in sync with that SOURCES
+    // list. Order here only affects factory-preset iteration order before
+    // getAllPresets() re-sorts alphabetically, so it isn't otherwise
+    // significant.
+    std::vector<basilica::presets::FactoryPresetAsset> makeFactoryPresetAssets()
+    {
+        return {
+            { BinaryData::foundationChug_json, BinaryData::foundationChug_jsonSize },
+            { BinaryData::lowTunedPercussive_json, BinaryData::lowTunedPercussive_jsonSize },
+            { BinaryData::vintageCascade_json, BinaryData::vintageCascade_jsonSize },
+            { BinaryData::scoopedWall_json, BinaryData::scoopedWall_jsonSize },
+            { BinaryData::cutThroughLeadAdjacent_json, BinaryData::cutThroughLeadAdjacent_jsonSize },
+            { BinaryData::brightAggressive_json, BinaryData::brightAggressive_jsonSize },
+            { BinaryData::looseAndOpen_json, BinaryData::looseAndOpen_jsonSize },
+            { BinaryData::fullDryWetBlend_json, BinaryData::fullDryWetBlend_jsonSize },
+        };
+    }
+}
+
 //==============================================================================
 TenebraeAudioProcessor::TenebraeAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
+      apvts (*this, nullptr, "PARAMETERS", createParameterLayout()),
+      presetManager (apvts, makePresetManagerConfig(), makeFactoryPresetAssets())
 {
     tightHz = apvts.getRawParameterValue (ParamIDs::tight);
     gainDb = apvts.getRawParameterValue (ParamIDs::gain);
@@ -20,6 +69,12 @@ TenebraeAudioProcessor::TenebraeAudioProcessor()
     voicingChoice = apvts.getRawParameterValue (ParamIDs::voicing);
     brightToggle = apvts.getRawParameterValue (ParamIDs::bright);
     toneVoiceChoice = apvts.getRawParameterValue (ParamIDs::toneVoice);
+    presenceDb = apvts.getRawParameterValue (ParamIDs::presence);
+    gateThresholdDb = apvts.getRawParameterValue (ParamIDs::gateThreshold);
+    gateAttackMs = apvts.getRawParameterValue (ParamIDs::gateAttack);
+    gateHoldMs = apvts.getRawParameterValue (ParamIDs::gateHold);
+    gateReleaseMs = apvts.getRawParameterValue (ParamIDs::gateRelease);
+    gateOnToggle = apvts.getRawParameterValue (ParamIDs::gateOn);
 
     jassert (tightHz != nullptr);
     jassert (gainDb != nullptr);
@@ -31,6 +86,19 @@ TenebraeAudioProcessor::TenebraeAudioProcessor()
     jassert (voicingChoice != nullptr);
     jassert (brightToggle != nullptr);
     jassert (toneVoiceChoice != nullptr);
+    jassert (presenceDb != nullptr);
+    jassert (gateThresholdDb != nullptr);
+    jassert (gateAttackMs != nullptr);
+    jassert (gateHoldMs != nullptr);
+    jassert (gateReleaseMs != nullptr);
+    jassert (gateOnToggle != nullptr);
+
+    // M2 default resolution: user "Default" preset > factory "Default"
+    // preset > the ParameterLayout defaults apvts was just constructed
+    // with above (see PresetManager::applyStartupDefault()'s docs and
+    // docs/presets.md's note on why this repo's factory bank has no preset
+    // literally named "Default").
+    presetManager.applyStartupDefault();
 }
 
 TenebraeAudioProcessor::~TenebraeAudioProcessor() = default;
@@ -112,6 +180,12 @@ void TenebraeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     engine.setVoicing (juce::roundToInt (voicingChoice->load (std::memory_order_relaxed)));
     engine.setBright (brightToggle->load (std::memory_order_relaxed) >= 0.5f);
     engine.setToneVoice (juce::roundToInt (toneVoiceChoice->load (std::memory_order_relaxed)));
+    engine.setPresenceDb (presenceDb->load (std::memory_order_relaxed));
+    engine.setGateThresholdDb (gateThresholdDb->load (std::memory_order_relaxed));
+    engine.setGateAttackMs (gateAttackMs->load (std::memory_order_relaxed));
+    engine.setGateHoldMs (gateHoldMs->load (std::memory_order_relaxed));
+    engine.setGateReleaseMs (gateReleaseMs->load (std::memory_order_relaxed));
+    engine.setGateOn (gateOnToggle->load (std::memory_order_relaxed) >= 0.5f);
 
     engine.prepare (spec);
 
@@ -169,6 +243,12 @@ void TenebraeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     engine.setVoicing (juce::roundToInt (voicingChoice->load (std::memory_order_relaxed)));
     engine.setBright (brightToggle->load (std::memory_order_relaxed) >= 0.5f);
     engine.setToneVoice (juce::roundToInt (toneVoiceChoice->load (std::memory_order_relaxed)));
+    engine.setPresenceDb (presenceDb->load (std::memory_order_relaxed));
+    engine.setGateThresholdDb (gateThresholdDb->load (std::memory_order_relaxed));
+    engine.setGateAttackMs (gateAttackMs->load (std::memory_order_relaxed));
+    engine.setGateHoldMs (gateHoldMs->load (std::memory_order_relaxed));
+    engine.setGateReleaseMs (gateReleaseMs->load (std::memory_order_relaxed));
+    engine.setGateOn (gateOnToggle->load (std::memory_order_relaxed) >= 0.5f);
 
     juce::dsp::AudioBlock<float> block (buffer);
     engine.process (block);

@@ -1,0 +1,25 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.tenebrae",
+    "pluginVersion": "0.2.0",
+    "name": "Loose & Open",
+    "category": "Guitar",
+    "parameters": {
+        "tight": 50.0,
+        "gain": 16.0,
+        "bass": 3.0,
+        "mid": 1.0,
+        "treble": 2.0,
+        "level": 1.0,
+        "mix": 100.0,
+        "voicing": 1.0,
+        "bright": 0.0,
+        "toneVoice": 0.0,
+        "presence": 1.0,
+        "gateThreshold": -58.0,
+        "gateAttack": 1.0,
+        "gateHold": 20.0,
+        "gateRelease": 300.0,
+        "gateOn": 1.0
+    }
+}

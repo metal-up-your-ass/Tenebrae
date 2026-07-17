@@ -123,6 +123,12 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
         setParam (processor, ParamIDs::voicing, useMinimum ? 0.0f : 1.0f);
         setParam (processor, ParamIDs::bright, useMinimum ? 0.0f : 1.0f);
         setParam (processor, ParamIDs::toneVoice, useMinimum ? 0.0f : 2.0f);
+        setParam (processor, ParamIDs::presence, useMinimum ? -12.0f : 12.0f);
+        setParam (processor, ParamIDs::gateThreshold, useMinimum ? -80.0f : 0.0f);
+        setParam (processor, ParamIDs::gateAttack, useMinimum ? 0.1f : 20.0f);
+        setParam (processor, ParamIDs::gateHold, useMinimum ? 0.0f : 500.0f);
+        setParam (processor, ParamIDs::gateRelease, useMinimum ? 5.0f : 2000.0f);
+        setParam (processor, ParamIDs::gateOn, useMinimum ? 0.0f : 1.0f);
 
         TestHelpers::fillWithSine (buffer, 44100.0, 440.0, 0.8f);
 
@@ -131,13 +137,16 @@ TEST_CASE ("Extreme parameter values at both range edges produce no NaN/Inf", "[
     }
 }
 
-TEST_CASE ("Every combination of Voicing/Bright/Tone Voice at max gain produces no NaN/Inf", "[robustness]")
+TEST_CASE ("Every combination of Voicing/Bright/Tone Voice x Gate on/off x Threshold extremes at max gain produces no NaN/Inf",
+           "[robustness]")
 {
     // The M1 additions (Voicing, Bright, Tone Voice) branch/switch fixed DSP
     // state rather than being continuous controls, so it's worth exhaustively
     // covering their combinations - unlike a continuous knob, a bug in one
     // specific combination wouldn't necessarily show up when the others are
-    // swept independently.
+    // swept independently. v0.2.0 (design-brief.md section 4) extends this
+    // to also cover Gate on/off x Threshold at both range extremes, the same
+    // exhaustive-combination pattern applied to the new switches.
     TenebraeAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
 
@@ -146,6 +155,7 @@ TEST_CASE ("Every combination of Voicing/Bright/Tone Voice at max gain produces 
     setParam (processor, ParamIDs::bass, 15.0f);
     setParam (processor, ParamIDs::mid, 15.0f);
     setParam (processor, ParamIDs::treble, 15.0f);
+    setParam (processor, ParamIDs::presence, 12.0f);
     setParam (processor, ParamIDs::level, 24.0f);
     setParam (processor, ParamIDs::mix, 100.0f);
 
@@ -158,15 +168,23 @@ TEST_CASE ("Every combination of Voicing/Bright/Tone Voice at max gain produces 
         {
             for (float toneVoice : { 0.0f, 1.0f, 2.0f })
             {
-                setParam (processor, ParamIDs::voicing, voicing);
-                setParam (processor, ParamIDs::bright, bright);
-                setParam (processor, ParamIDs::toneVoice, toneVoice);
+                for (float gateOn : { 0.0f, 1.0f })
+                {
+                    for (float gateThreshold : { -80.0f, 0.0f })
+                    {
+                        setParam (processor, ParamIDs::voicing, voicing);
+                        setParam (processor, ParamIDs::bright, bright);
+                        setParam (processor, ParamIDs::toneVoice, toneVoice);
+                        setParam (processor, ParamIDs::gateOn, gateOn);
+                        setParam (processor, ParamIDs::gateThreshold, gateThreshold);
 
-                TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 1.0f);
+                        TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 1.0f);
 
-                CHECK_NOTHROW (processor.processBlock (buffer, midi));
-                CHECK (TestHelpers::allSamplesFinite (buffer));
-                CHECK (TestHelpers::peakAbsolute (buffer) < 1000.0f);
+                        CHECK_NOTHROW (processor.processBlock (buffer, midi));
+                        CHECK (TestHelpers::allSamplesFinite (buffer));
+                        CHECK (TestHelpers::peakAbsolute (buffer) < 1000.0f);
+                    }
+                }
             }
         }
     }
@@ -198,6 +216,12 @@ TEST_CASE ("Rapid parameter automation across many blocks produces no NaN/Inf", 
         setParam (processor, ParamIDs::voicing, unit (rng) < 0.5f ? 0.0f : 1.0f);
         setParam (processor, ParamIDs::bright, unit (rng) < 0.5f ? 0.0f : 1.0f);
         setParam (processor, ParamIDs::toneVoice, std::floor (unit (rng) * 3.0f));
+        setParam (processor, ParamIDs::presence, -12.0f + unit (rng) * 24.0f);
+        setParam (processor, ParamIDs::gateThreshold, -80.0f + unit (rng) * 80.0f);
+        setParam (processor, ParamIDs::gateAttack, 0.1f + unit (rng) * 19.9f);
+        setParam (processor, ParamIDs::gateHold, unit (rng) * 500.0f);
+        setParam (processor, ParamIDs::gateRelease, 5.0f + unit (rng) * 1995.0f);
+        setParam (processor, ParamIDs::gateOn, unit (rng) < 0.5f ? 0.0f : 1.0f);
 
         juce::AudioBuffer<float> buffer (2, 256);
         TestHelpers::fillWithSine (buffer, 48000.0, 200.0 + unit (rng) * 4000.0, 0.7f);

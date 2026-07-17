@@ -1,0 +1,25 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.tenebrae",
+    "pluginVersion": "0.2.0",
+    "name": "Low-Tuned Percussive",
+    "category": "Guitar",
+    "parameters": {
+        "tight": 130.0,
+        "gain": 26.0,
+        "bass": -2.0,
+        "mid": 2.0,
+        "treble": 1.0,
+        "level": 0.0,
+        "mix": 100.0,
+        "voicing": 0.0,
+        "bright": 0.0,
+        "toneVoice": 0.0,
+        "presence": 2.0,
+        "gateThreshold": -42.0,
+        "gateAttack": 1.0,
+        "gateHold": 20.0,
+        "gateRelease": 80.0,
+        "gateOn": 1.0
+    }
+}

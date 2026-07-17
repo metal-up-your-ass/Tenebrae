@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-16
+
+Research-derived deep-dive rework against the reference class of high-gain cascaded rhythm-guitar
+distortion (modern cascade-amp lineages and their software/pedal equivalents) - see
+`docs/design-brief.md` and `docs/research-notes.md` for the full sourcing (the only two documents
+in this repo that name specific reference products, as citations). This is an additive/corrective
+pass, not a rewrite: the core clipper transfer function,
+per-stage cascade constants, 8x oversampling, Tight/Loose voicing tables, and all real-time-safety
+patterns are unchanged and were validated by the research as either directly consistent with the
+reference class or reasonable engineering simplifications with no sourced correction available.
+Also ships the suite-wide M2 preset system (this repo's implementation of the pilot pattern from
+`basilica-audio/nave`) and a German frame-string localisation.
+
+### Added
+
+- **Presence** parameter (-12 dB to +12 dB, default 0 dB/unity): a new post-cascade, post-tone-stack
+  high-shelf at a sourced 2.4 kHz corner (see `docs/research-notes.md` for the exact citation),
+  modelled on the reference class's power-amp Presence feedback control's functional position (not
+  its circuit). At the 0 dB default the shelf is skipped entirely (a true structural bypass, not
+  merely a near-unity filter), so existing sessions/presets are unaffected on migration.
+- **Gate**: a new conventional fixed attack/hold/release expander/gate, inserted after Presence and
+  before Level, gating the fully-voiced wet signal (catches noise the cascade's own gain generates,
+  not just input noise). Four new parameters - Gate Threshold (-80 to 0 dB, default -48 dB), Gate
+  Attack (0.1-20 ms, default 1 ms), Gate Hold (0-500 ms, default 20 ms), Gate Release (5-2000 ms,
+  default 150 ms) - plus a Gate on/off toggle. **Deliberately defaults to ON**: this is the single
+  highest-impact structural gap the research identified in v0.1 (every reference plugin/pedal in
+  this genre ships a gate as a first-class module), and shipping it off by default would silently
+  reproduce that gap. This is the one v0.2.0 change with a user-facing consequence for old sessions:
+  loading a pre-v0.2.0 session now engages the Gate at its default settings on top of whatever was
+  saved, which may audibly change the tail/silence behaviour of that session.
+- M2 preset system (`src/presets/`): factory bank of 8 presets (`presets/factory/*.json` - Foundation
+  Chug, Low-Tuned Percussive, Vintage Cascade, Scooped Wall, Cut-Through Lead-Adjacent, Bright
+  Aggressive, Loose & Open, Full Dry/Wet Blend), user preset save/save-as/rename/delete, single-file
+  and zip-bank import/export, dirty-state tracking, and a `PresetBar` UI strip docked at the top of
+  the editor. See `docs/presets.md` for what each factory preset does and `docs/preset-system-notes.md`
+  for the underlying architecture (copied verbatim from the pilot implementation in
+  `basilica-audio/nave`).
+- German (`de`) frame-string localisation for the preset bar (labels, menus, dialogs, error
+  messages), auto-selected from the host OS's system language; core DSP/parameter terminology
+  (Tight, Gain, Presence, Gate, dB, Hz, ms, %, etc.) is never translated, matching the suite-wide
+  i18n convention.
+- `tests/GateTests.cpp` (module-level Gate ballistics/bypass/NaN coverage) and
+  `tests/PresetManagerTests.cpp` (17 preset-system tests, ported from the nave pilot) - see
+  "Changed" below for extensions to existing test files.
+
+### Changed
+
+- **Tone stack Treble corner raised from 3.5 kHz to 5 kHz** (`ToneStack.cpp`'s internal filter
+  constant - not a parameter ID/range change, so existing sessions keep working, but a non-zero
+  Treble setting now sounds slightly different). Reasoned (not directly sourced to one reference
+  number): with the new Presence control now owning the ~2.4 kHz region, Treble sits clearly above
+  it instead of stacking on the same corner Bright already occupies (3.5 kHz, unchanged, pre-cascade),
+  while staying below the cascade's own top-end rolloff ceiling.
+- `docs/architecture.md` and `docs/manual.md` updated for the new signal flow (Presence, Gate),
+  the Treble corner change, and the preset system.
+- Extended `tests/StateTests.cpp` (Presence + all four new Gate parameters + Gate on/off in the
+  non-default-round-trip test, plus a new test simulating an old v0.1.0-style state tree missing
+  the new parameter IDs, confirming `AudioProcessorValueTreeState` falls back to the v0.2.0
+  defaults rather than failing the load), `tests/ParameterTests.cpp` (parameter count 10 -> 16,
+  new sections for Presence/Gate defaults/ranges), `tests/EngineTests.cpp` (Presence boost/cut and
+  true-passthrough-at-0dB tests, Gate bypass/engaged/NaN-sweep tests), `tests/RobustnessTests.cpp`
+  (extreme-value sweep and the exhaustive Voicing x Bright x Tone Voice combination test both now
+  also cover Presence and Gate on/off x Threshold extremes), and `tests/ToneStackTests.cpp` (Treble
+  test comment updated for the new corner).
+- Bumped to JUCE 8.0.14's plugin version 0.2.0; `CMakeLists.txt` now embeds the preset/i18n
+  BinaryData assets and links `juce_gui_basics` into `SharedCode` (needed by `PresetBar`'s
+  `AlertWindow`/`FileChooser`/`PopupMenu` usage).
+
+### Fixed
+
+- Housekeeping: `ci/fix-release-workflow` (create-release-before-asset-upload fix) and dependabot
+  `actions/checkout` 4->7 / `actions/cache` 4->6 bumps merged ahead of this release.
+
 ## [0.1.1] - 2026-07-16
 
 ### Changed

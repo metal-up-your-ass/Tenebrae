@@ -1,0 +1,25 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.tenebrae",
+    "pluginVersion": "0.2.0",
+    "name": "Bright Aggressive",
+    "category": "Guitar",
+    "parameters": {
+        "tight": 110.0,
+        "gain": 32.0,
+        "bass": -1.0,
+        "mid": 1.0,
+        "treble": -1.0,
+        "level": -2.0,
+        "mix": 100.0,
+        "voicing": 0.0,
+        "bright": 1.0,
+        "toneVoice": 0.0,
+        "presence": -1.0,
+        "gateThreshold": -44.0,
+        "gateAttack": 1.0,
+        "gateHold": 20.0,
+        "gateRelease": 150.0,
+        "gateOn": 1.0
+    }
+}

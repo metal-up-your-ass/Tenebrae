@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "presets/PresetBar.h"
+
 class TenebraeAudioProcessor;
 
 // A simple, functional v0.1 editor: one rotary slider per parameter, bound
@@ -41,6 +43,13 @@ private:
 
     TenebraeAudioProcessor& audioProcessor;
 
+    // M2 preset system (src/presets/PresetBar.h) - a horizontal strip
+    // docked at the top of the editor. Constructed after the localisation
+    // frame is installed (see the constructor) so its TRANS()'d strings
+    // (and any of its own dialogs opened later) pick up the right language
+    // from the very first paint.
+    basilica::presets::PresetBar presetBar;
+
     Knob tightKnob;
     Knob gainKnob;
     Choice voicingChoice;
@@ -50,6 +59,14 @@ private:
     Knob midKnob;
     Knob trebleKnob;
     Choice toneVoiceChoice;
+    // v0.2.0 additions (docs/design-brief.md): Presence and the Gate.
+    Knob presenceKnob;
+    Knob gateThresholdKnob;
+    Knob gateAttackKnob;
+    Knob gateHoldKnob;
+    Knob gateReleaseKnob;
+    juce::ToggleButton gateOnButton;
+    std::unique_ptr<ButtonAttachment> gateOnAttachment;
     Knob levelKnob;
     Knob mixKnob;
 

@@ -1,0 +1,25 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.tenebrae",
+    "pluginVersion": "0.2.0",
+    "name": "Scooped Wall",
+    "category": "Guitar",
+    "parameters": {
+        "tight": 100.0,
+        "gain": 28.0,
+        "bass": 3.0,
+        "mid": -3.0,
+        "treble": 1.0,
+        "level": -1.0,
+        "mix": 100.0,
+        "voicing": 0.0,
+        "bright": 0.0,
+        "toneVoice": 1.0,
+        "presence": 3.0,
+        "gateThreshold": -46.0,
+        "gateAttack": 1.0,
+        "gateHold": 20.0,
+        "gateRelease": 150.0,
+        "gateOn": 1.0
+    }
+}

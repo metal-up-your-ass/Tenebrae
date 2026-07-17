@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "dsp/TenebraeEngine.h"
+#include "presets/PresetManager.h"
 
 // Tenebrae: cascaded, oversampled high-gain distortion for symphonic-metal
 // rhythm guitar. Signal flow lives in TenebraeEngine (src/dsp) so it stays
@@ -51,6 +52,14 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
+    // M2 preset system (.scaffold/specs/preset-system-m2.md,
+    // src/presets/PresetManager.h). Constructed after apvts (its
+    // constructor registers APVTS parameter listeners) and public so
+    // TenebraeAudioProcessorEditor's PresetBar can talk to it directly - the
+    // same "processor owns it, editor references it" pattern apvts itself
+    // already uses.
+    basilica::presets::PresetManager presetManager;
+
 private:
     TenebraeEngine engine;
 
@@ -67,6 +76,12 @@ private:
     std::atomic<float>* voicingChoice = nullptr;
     std::atomic<float>* brightToggle = nullptr;
     std::atomic<float>* toneVoiceChoice = nullptr;
+    std::atomic<float>* presenceDb = nullptr;
+    std::atomic<float>* gateThresholdDb = nullptr;
+    std::atomic<float>* gateAttackMs = nullptr;
+    std::atomic<float>* gateHoldMs = nullptr;
+    std::atomic<float>* gateReleaseMs = nullptr;
+    std::atomic<float>* gateOnToggle = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TenebraeAudioProcessor)
 };

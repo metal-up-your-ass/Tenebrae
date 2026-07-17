@@ -1,6 +1,9 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "params/ParameterIds.h"
+#include "presets/Localisation.h"
+
+#include <BinaryData.h>
 
 namespace
 {
@@ -8,19 +11,44 @@ namespace
     constexpr int textBoxHeight = 20;
     constexpr int labelHeight = 20;
     constexpr int margin = 16;
-    // Signal-flow order: Tight, Gain, Voicing, Bright, Bass, Mid, Treble,
-    // Tone Voice, Level, Mix - 10 control slots total (7 knobs, 2 combo
-    // boxes, 1 toggle button), all the same slot width for a simple, evenly
-    // spaced v0.1 layout.
-    constexpr int numSlots = 10;
+    constexpr int presetBarHeight = 28;
+    // Signal-flow order (docs/design-brief.md section 2): Tight, Gain,
+    // Voicing, Bright, Bass, Mid, Treble, Tone Voice, Presence, Gate
+    // Threshold/Attack/Hold/Release/On, Level, Mix - 16 control slots total
+    // (12 knobs, 2 combo boxes, 2 toggle buttons), all the same slot width
+    // for a simple, evenly spaced v0.1/v0.2 layout. A custom vector-drawn
+    // GUI is a later milestone (M3) - per this suite's "do not gold-plate"
+    // convention, v0.2.0 only adds the new controls to the existing plain
+    // grid rather than redesigning the layout.
+    constexpr int numSlots = 16;
     constexpr int editorWidth = margin * 2 + numSlots * knobSize + (numSlots - 1) * margin;
-    constexpr int editorHeight = margin * 2 + labelHeight + knobSize + textBoxHeight;
+    constexpr int editorHeight = margin * 3 + presetBarHeight + labelHeight + knobSize + textBoxHeight;
+
+    // M2 i18n frame (.scaffold/specs/preset-system-m2.md): selects German
+    // (resources/i18n/de.txt) or falls through to English, once, at editor
+    // construction - see Localisation.h's docs. `presetBar` is a member
+    // initialised via the constructor's initialiser list, and its own
+    // constructor already calls TRANS() on every button label - member
+    // initialisers run in declaration order regardless of the order
+    // they're written in, so this helper (called from presetBar's own
+    // initialiser expression below) is what actually guarantees
+    // installLocalisation() runs before presetBar exists, not an
+    // installLocalisation() call in the constructor *body*, which would run
+    // too late.
+    basilica::presets::PresetManager& initLocalisationThenGetPresetManager (TenebraeAudioProcessor& processor)
+    {
+        basilica::presets::installLocalisation (BinaryData::de_txt, BinaryData::de_txtSize);
+        return processor.presetManager;
+    }
 }
 
 TenebraeAudioProcessorEditor::TenebraeAudioProcessorEditor (TenebraeAudioProcessor& processorToEdit)
     : juce::AudioProcessorEditor (&processorToEdit),
-      audioProcessor (processorToEdit)
+      audioProcessor (processorToEdit),
+      presetBar (initLocalisationThenGetPresetManager (processorToEdit))
 {
+    addAndMakeVisible (presetBar);
+
     configureKnob (tightKnob, ParamIDs::tight, "Tight");
     configureKnob (gainKnob, ParamIDs::gain, "Gain");
     configureChoice (voicingChoice, ParamIDs::voicing, "Voicing");
@@ -33,6 +61,17 @@ TenebraeAudioProcessorEditor::TenebraeAudioProcessorEditor (TenebraeAudioProcess
     configureKnob (midKnob, ParamIDs::mid, "Mid");
     configureKnob (trebleKnob, ParamIDs::treble, "Treble");
     configureChoice (toneVoiceChoice, ParamIDs::toneVoice, "Tone Voice");
+
+    configureKnob (presenceKnob, ParamIDs::presence, "Presence");
+    configureKnob (gateThresholdKnob, ParamIDs::gateThreshold, "Gate Thresh");
+    configureKnob (gateAttackKnob, ParamIDs::gateAttack, "Gate Attack");
+    configureKnob (gateHoldKnob, ParamIDs::gateHold, "Gate Hold");
+    configureKnob (gateReleaseKnob, ParamIDs::gateRelease, "Gate Release");
+
+    gateOnButton.setButtonText ("Gate");
+    addAndMakeVisible (gateOnButton);
+    gateOnAttachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, ParamIDs::gateOn, gateOnButton);
+
     configureKnob (levelKnob, ParamIDs::level, "Level");
     configureKnob (mixKnob, ParamIDs::mix, "Mix");
 
@@ -75,6 +114,10 @@ void TenebraeAudioProcessorEditor::configureChoice (Choice& choice, const juce::
 void TenebraeAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds().reduced (margin);
+
+    presetBar.setBounds (bounds.removeFromTop (presetBarHeight));
+    bounds.removeFromTop (margin);
+
     bounds.removeFromTop (labelHeight); // room for the attached labels above each control
 
     const auto slotWidth = bounds.getWidth() / numSlots;
@@ -95,6 +138,15 @@ void TenebraeAudioProcessorEditor::resized()
 
     auto toneVoiceSlot = bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0);
     toneVoiceChoice.box.setBounds (toneVoiceSlot.removeFromTop (comboBoxHeight));
+
+    presenceKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    gateThresholdKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    gateAttackKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    gateHoldKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+    gateReleaseKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
+
+    auto gateOnSlot = bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0);
+    gateOnButton.setBounds (gateOnSlot.removeFromTop (comboBoxHeight));
 
     levelKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));
     mixKnob.slider.setBounds (bounds.removeFromLeft (slotWidth).reduced (margin / 2, 0));

@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "CascadeStage.h"
+#include "Gate.h"
 #include "ToneStack.h"
 
 #include <vector>
@@ -19,13 +20,19 @@
 //   input -> Tight HPF -> Bright (switch) -> pre-Gain
 //         -> [8x oversampled] 3-stage cascade (Voicing: Tight/Loose)
 //         -> 3-band tone stack (Bass/Mid/Treble, tilted by Tone Voice)
-//         -> Level -> Dry/Wet mix
+//         -> Presence (post-cascade high-shelf) -> Gate -> Level -> Dry/Wet mix
 //
 // Each cascade stage is gain -> asymmetric tanh clip -> fixed interstage
 // HP/LP filter (see CascadeStage); the three stages use progressively
 // tighter/darker fixed voicing so the cascade converges onto the "chug"
 // band rather than piling up an ever-fizzier mess (see TenebraeEngine.cpp).
 // Voicing selects between two such fixed-voicing triplets ("Tight"/"Loose").
+//
+// v0.2.0 (docs/design-brief.md) added two post-tone-stack modules: Presence
+// (a fixed-2.4kHz high-shelf, modelled on the reference class's power-amp
+// Presence feedback control's functional position, not its circuit - see
+// setPresenceDb()) and Gate (a conventional fixed attack/hold/release
+// expander/gate - see Gate.h), both inserted before Level.
 //
 // The dry path is delay-compensated against the oversampler's reported
 // latency via juce::dsp::DryWetMixer, so Mix at 0% is a sample-accurate
@@ -70,6 +77,22 @@ public:
     void setBassDb (float newBassDb);
     void setMidDb (float newMidDb);
     void setTrebleDb (float newTrebleDb);
+
+    // Presence: post-cascade/post-tone-stack high-shelf, fixed 2.4 kHz
+    // corner (see the .cpp). At exactly 0 dB (the default) the shelf is
+    // skipped entirely, not merely computed as a near-unity filter - see
+    // the .cpp's process() for why this is required for a true passthrough
+    // guarantee (docs/design-brief.md section 4's Presence test).
+    void setPresenceDb (float newPresenceDb);
+
+    // Gate: conventional fixed attack/hold/release expander/gate, applied to
+    // the fully-voiced wet signal after Presence. Real units: dB, ms, ms, ms.
+    void setGateThresholdDb (float newThresholdDb);
+    void setGateAttackMs (float newAttackMs);
+    void setGateHoldMs (float newHoldMs);
+    void setGateReleaseMs (float newReleaseMs);
+    void setGateOn (bool shouldBeOn);
+
     void setLevelDb (float newLevelDb);
     void setMixProportion (float newProportion01);
 
@@ -102,6 +125,14 @@ private:
     static constexpr double smoothingTimeSeconds = 0.05;
     // Butterworth (maximally-flat) Q for the Tight HPF.
     static constexpr float filterQ = juce::MathConstants<float>::sqrt2 / 2.0f;
+
+    // Presence sits within this epsilon of exactly 0 dB is treated as the
+    // explicit "off" position (filter skipped entirely, not merely computed
+    // as a near-unity shelf) - see the .cpp's process(). Matches the
+    // NormalisableRange step (0.01) ParameterLayout.cpp gives the Presence
+    // parameter, so no in-range user-reachable value is ever misclassified
+    // as "default".
+    static constexpr float presenceBypassEpsilonDb = 0.005f;
 
     double sampleRate = 44100.0;
 
@@ -142,6 +173,25 @@ private:
     CascadeStage cascadeStage3Loose;
 
     ToneStack toneStack;
+
+    // Presence: v0.2.0 addition, a fixed-2.4kHz high-shelf running at the
+    // host rate after the tone stack - see setPresenceDb() and the .cpp's
+    // process() for the "skip entirely at 0 dB" bypass handling.
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> presenceShelf;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> presenceDbSmoothed;
+    float lastPresenceDb = 0.0f;
+    // Tracks whether Presence was engaged (non-bypassed) on the previous
+    // block, so process() can reset the shelf's IIR state exactly on a
+    // bypassed->engaged transition (clean start, not stale delay-line
+    // memory from however many blocks ago it was last active) - same
+    // pattern sibling plugin nave's CabConvolutionEngine uses for its own
+    // "off position" filters.
+    bool presenceEngagedPreviously = false;
+
+    // Gate: v0.2.0 addition - see Gate.h. Runs at the host rate, after
+    // Presence and before Level, on the fully-voiced wet signal.
+    Gate gate;
+
     juce::dsp::Gain<float> outputLevel;
 
     // Scratch buffer for RealtimeGain::process() (see TenebraeEngine.cpp and
